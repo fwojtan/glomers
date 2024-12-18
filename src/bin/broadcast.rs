@@ -1,6 +1,4 @@
-use std::
-    collections::{HashMap, HashSet}
-;
+use std::collections::{HashMap, HashSet};
 
 use tokio::{
     io::{BufWriter, Stdout},
@@ -44,6 +42,18 @@ enum DatumStatus {
     Confirmed,
 }
 
+fn node_num(value: &String) -> u32 {
+    value
+        .split_at(1)
+        .1
+        .parse::<u32>()
+        .expect("Could not parse this node's node id")
+}
+
+fn node_group(value: &String) -> u32 {
+    node_num(value) % N_GROUPS
+}
+
 struct BroadcastNode {
     id: String,
     msg_id: usize,
@@ -52,8 +62,6 @@ struct BroadcastNode {
     seen_data: HashSet<usize>,
     /// Status for each peer/datum
     peer_data: HashMap<String, HashMap<usize, DatumStatus>>,
-    // /// Messages the peer thinks we know based on their behaviour
-    // peer_view_of_me: HashMap<String, HashSet<usize>>,
 }
 
 impl MsgHandler<BroadcastMessages> for BroadcastNode {
@@ -61,24 +69,43 @@ impl MsgHandler<BroadcastMessages> for BroadcastNode {
     where
         Self: MsgHandler<BroadcastMessages>,
     {
-        // Topology - redundant fat-tree-like topology
-        // Nodes in 5 groups, two nodes from each group are
-        // cross-connected
-        let this_node_id = partial_node.id.split_at(1).1.parse::<u32>().expect("Could not parse this node's node id");
+        // Topology - ring-tree style with branches
+        // connected to at least one other branch for redundancy
+        // Every node should have just two peers and is at worst 6 hops away
+        // under double partition (for n=25). Just 4 hops normally.
+        //
+        // Almost all of my speed up from 3d -> 3e is due to a much more efficient topology!
+        let this_node_num = node_num(&partial_node.id);
+        let this_group = node_group(&partial_node.id);
+
         let mut peer_data = HashMap::new();
-        for peer in partial_node.peers {
-            let node_id = peer.split_at(1).1.parse::<u32>().expect("Could not parse node id");
-            // Add all nodes in the same group i.e. 0, 5, 10, 15, 20
-            if node_id % N_GROUPS == this_node_id % N_GROUPS {
-                peer_data.insert(peer.clone(), HashMap::new());
-            }
-            // Cross-connect the first node in each group i.e. 0, 1, 2, 3, 4
-            if this_node_id < N_GROUPS && node_id != this_node_id {
-                peer_data.insert(peer.clone(), HashMap::new());
-            }
-            // Cross-connect the second node in each group i.e. 5, 6, 7, 8, 9
-            if this_node_id < N_GROUPS + N_GROUPS && this_node_id >= N_GROUPS && node_id != this_node_id {
-                peer_data.insert(peer.clone(), HashMap::new());
+
+        for other_node in partial_node.node_ids {
+            let other_node_num = other_node
+                .split_at(1)
+                .1
+                .parse::<u32>()
+                .expect("Could not parse node id");
+            let other_group = node_group(&other_node);
+
+            if this_node_num < N_GROUPS {
+                // Trunk node - connected in ring and to all branches in group
+                if other_group == this_group
+                    || other_node_num == (5 + this_node_num + 1) % N_GROUPS
+                    || other_node_num == (5 + this_node_num - 1) % N_GROUPS
+                {
+                    peer_data.insert(other_node.clone(), HashMap::new());
+                }
+            } else {
+                // Branch node - connected to trunk node and one other branch
+                if other_node_num == this_group
+                    || (other_node_num == this_node_num + 5
+                        && (other_node_num % (2 * N_GROUPS) == this_group))
+                    || (other_node_num + 5 == this_node_num
+                        && (this_node_num % (2 * N_GROUPS) == this_group))
+                {
+                    peer_data.insert(other_node.clone(), HashMap::new());
+                }
             }
         }
         BroadcastNode {
@@ -108,7 +135,9 @@ impl MsgHandler<BroadcastMessages> for BroadcastNode {
                 )
                 .await;
             }
-            BroadcastMessages::Topology { ref topology } => {
+            BroadcastMessages::Topology {
+                topology: ref _topology,
+            } => {
                 // // Remove peers that are no longer contained in the topology
                 // let mut stale_peers = vec![];
                 // for existing_peer in self.peer_data.keys() {
@@ -162,7 +191,6 @@ impl MsgHandler<BroadcastMessages> for BroadcastNode {
     }
 
     fn bg_task_interval_ms(&self) -> u64 {
-        // Success on task 3d with 250ms gossip interval
         250
     }
 

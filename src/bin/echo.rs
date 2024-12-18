@@ -1,5 +1,5 @@
 use tokio::{
-    io::{BufReader, BufWriter, Lines, Stdin, Stdout},
+    io::{BufWriter, Stdout},
     sync::RwLock,
 };
 
@@ -27,7 +27,7 @@ impl MsgHandler<EchoMessages> for EchoNode {
     {
         EchoNode {
             _id: partial_node.id,
-            _peers: partial_node.peers,
+            _peers: partial_node.node_ids,
             msg_id: partial_node.msg_id,
             output: partial_node.output,
         }

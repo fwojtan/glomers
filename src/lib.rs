@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug)]
 struct InitBody {
     node_id: String,
-    #[serde(rename(deserialize = "node_ids", serialize = "node_ids"))]
-    peers: Vec<String>,
+    node_ids: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -57,7 +56,7 @@ where
 
 pub struct PartialNode {
     pub id: String,
-    pub peers: Vec<String>,
+    pub node_ids: Vec<String>,
     pub msg_id: usize,
     pub output: RwLock<BufWriter<Stdout>>,
 }
@@ -109,7 +108,7 @@ where
         let node = match init_msg.body.msg {
             InitMessages::Init(ref init_body) => PartialNode {
                 id: init_body.node_id.clone(),
-                peers: init_body.peers.clone(),
+                node_ids: init_body.node_ids.clone(),
                 msg_id: 0,
                 output,
             },
