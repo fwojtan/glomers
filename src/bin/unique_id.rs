@@ -1,6 +1,12 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    cell::RefCell,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use tokio::io::{BufReader, BufWriter, Lines, Stdin, Stdout};
+use tokio::{
+    io::{BufReader, BufWriter, Lines, Stdin, Stdout},
+    sync::RwLock,
+};
 
 use glomers::{Message, MsgHandler};
 use serde::{Deserialize, Serialize};
@@ -9,15 +15,14 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type", rename_all = "snake_case")]
 enum GenerateMessages {
     Generate,
-    GenerateOk{id: String},
+    GenerateOk { id: String },
 }
 
 struct UniqueIdNode {
     id: String,
     _peers: Vec<String>,
     msg_id: usize,
-    input: Lines<BufReader<Stdin>>,
-    output: BufWriter<Stdout>,
+    output: RwLock<BufWriter<Stdout>>,
 }
 
 impl MsgHandler<GenerateMessages> for UniqueIdNode {
@@ -29,7 +34,6 @@ impl MsgHandler<GenerateMessages> for UniqueIdNode {
             id: partial_node.id,
             _peers: partial_node.peers,
             msg_id: partial_node.msg_id,
-            input: partial_node.input,
             output: partial_node.output,
         }
     }
@@ -38,11 +42,19 @@ impl MsgHandler<GenerateMessages> for UniqueIdNode {
     where
         GenerateMessages: Serialize,
     {
-        if matches!(msg.body.msg, GenerateMessages::Generate){
+        if matches!(msg.body.msg, GenerateMessages::Generate) {
             self.reply(
                 &msg,
                 GenerateMessages::GenerateOk {
-                    id: format!("{}-{}-{}", self.id, self.msg_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos())
+                    id: format!(
+                        "{}-{}-{}",
+                        self.id,
+                        self.msg_id,
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos()
+                    ),
                 },
             )
             .await
@@ -53,12 +65,8 @@ impl MsgHandler<GenerateMessages> for UniqueIdNode {
         &mut self.msg_id
     }
 
-    fn get_input(&mut self) -> &mut Lines<BufReader<Stdin>> {
-        &mut self.input
-    }
-
-    fn get_output(&mut self) -> &mut BufWriter<Stdout> {
-        &mut self.output
+    fn get_output(&self) -> &RwLock<BufWriter<Stdout>> {
+        &self.output
     }
 }
 
@@ -67,3 +75,5 @@ async fn main() {
     let jh = tokio::spawn(UniqueIdNode::run::<GenerateMessages>());
     jh.await.unwrap();
 }
+
+// echo '{"src":"c0","dest":"n3","body":{"type":"init","msg_id":1,"node_id":"n3","node_ids":["n1", "n2", "n3"]}}' | cargo run --bin unique_id

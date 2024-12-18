@@ -1,4 +1,7 @@
-use tokio::io::{BufReader, BufWriter, Lines, Stdin, Stdout};
+use tokio::{
+    io::{BufReader, BufWriter, Lines, Stdin, Stdout},
+    sync::RwLock,
+};
 
 use glomers::{Message, MsgHandler};
 use serde::{Deserialize, Serialize};
@@ -14,8 +17,7 @@ struct EchoNode {
     _id: String,
     _peers: Vec<String>,
     msg_id: usize,
-    input: Lines<BufReader<Stdin>>,
-    output: BufWriter<Stdout>,
+    output: RwLock<BufWriter<Stdout>>,
 }
 
 impl MsgHandler<EchoMessages> for EchoNode {
@@ -27,7 +29,6 @@ impl MsgHandler<EchoMessages> for EchoNode {
             _id: partial_node.id,
             _peers: partial_node.peers,
             msg_id: partial_node.msg_id,
-            input: partial_node.input,
             output: partial_node.output,
         }
     }
@@ -51,12 +52,8 @@ impl MsgHandler<EchoMessages> for EchoNode {
         &mut self.msg_id
     }
 
-    fn get_input(&mut self) -> &mut Lines<BufReader<Stdin>> {
-        &mut self.input
-    }
-
-    fn get_output(&mut self) -> &mut BufWriter<Stdout> {
-        &mut self.output
+    fn get_output(&self) -> &RwLock<BufWriter<Stdout>> {
+        &self.output
     }
 }
 
@@ -66,4 +63,4 @@ async fn main() {
     jh.await.unwrap();
 }
 
-// echo {"src":"c0","dest":"n3","body":{"type":"init","msg_id":1,"node_id":"n3","node_ids":["n1", "n2", "n3"]}} | cargo run --bin echo
+// echo '{"src":"c0","dest":"n3","body":{"type":"init","msg_id":1,"node_id":"n3","node_ids":["n1", "n2", "n3"]}}' | cargo run --bin echo
